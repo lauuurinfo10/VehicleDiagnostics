@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Diagnostics Live</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #4CAF50;
+            margin-bottom: 30px;
+        }
+        .dashboard {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+            gap: 20px;
+        }
+        .chart-container {
+            background-color: #1e1e1e;
+            border-radius: 12px;
+            padding: 20px;
+            width: 45%;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            border: 1px solid #333;
+        }
+        canvas {
+            width: 100% !important;
+            height: 300px !important;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🚗 Live Vehicle Diagnostics Dashboard</h1>
+    
+    <div class="dashboard">
+        <div class="chart-container">
+            <canvas id="rpmChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="tempChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="speedChart"></canvas>
+        </div>
+        <div class="chart-container">
+            <canvas id="oilChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // Configurația standard pentru grafice
+        const maxDataPoints = 20; // Ținem pe ecran doar ultimele 20 de citiri
+        
+        function createChart(ctxId, label, color) {
+            const ctx = document.getElementById(ctxId).getContext('2d');
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: label,
+                        data: [],
+                        borderColor: color,
+                        backgroundColor: color + '33', // adăugăm transparență
+                        borderWidth: 2,
+                        fill: true,
+                        pointBackgroundColor: [],
+                        pointRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 0 }, // Oprim animația ca să se miște fluid
+                    scales: {
+                        x: { display: false }, // Ascundem axa X (timpul) ca să arate mai curat
+                        y: { 
+                            grid: { color: '#333' },
+                            ticks: { color: '#aaa' }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#fff' } }
+                    }
+                }
+            });
+        }
+
+        // Inițializăm cele 4 grafice cu culori diferite
+        const charts = {
+            'RPM': createChart('rpmChart', 'Engine RPM', '#36A2EB'),
+            'TEMPERATURE': createChart('tempChart', 'Temperature (°C)', '#FF6384'),
+            'SPEED': createChart('speedChart', 'Speed (km/h)', '#FFCE56'),
+            'OILPRESSURE': createChart('oilChart', 'Oil Pressure (bar)', '#4BC0C0')
+        };
+
+        // Funcția care "sună" backend-ul tău de Python la fiecare secundă
+        async function fetchLiveData() {
+            try {
+                // Cerem doar ultima citire generată
+                const response = await fetch('/api/readings?limit=1');
+                const json = await response.json();
+                
+                if (json.status === "success" && json.data.length > 0) {
+                    const latestReading = json.data[0];
+                    const timeLabel = new Date().toLocaleTimeString();
+
+                    // Pentru fiecare senzor primit în JSON
+                    latestReading.readings.forEach(sensorData => {
+                        const chart = charts[sensorData.sensor];
+                        if (chart) {
+                            // Adăugăm valoarea pe axa Y și timpul pe axa X
+                            chart.data.labels.push(timeLabel);
+                            chart.data.datasets[0].data.push(sensorData.value);
+
+                            // Dacă C++ a marcat o anomalie, facem punctul ROȘU
+                            if (sensorData.anomaly) {
+                                chart.data.datasets[0].pointBackgroundColor.push('#FF0000');
+                                chart.data.datasets[0].pointRadius = 8; // Îl facem mai mare
+                            } else {
+                                chart.data.datasets[0].pointBackgroundColor.push(chart.data.datasets[0].borderColor);
+                                chart.data.datasets[0].pointRadius = 4;
+                            }
+
+                            // Tăiem datele vechi ca să graficul să pară că "curge"
+                            if (chart.data.labels.length > maxDataPoints) {
+                                chart.data.labels.shift();
+                                chart.data.datasets[0].data.shift();
+                                chart.data.datasets[0].pointBackgroundColor.shift();
+                            }
+                            
+                            chart.update();
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error("Eroare la citirea datelor:", error);
+            }
+        }
+
+        // Pornim bucla: rulează funcția de mai sus la fiecare 1000ms (1 secundă)
+        setInterval(fetchLiveData, 1000);
+    </script>
+</body>
+</html>
